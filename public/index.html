@@ -4,19 +4,21 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="Book your clinic appointment online. View available doctors and appointment times.">
+<meta name="description" content="Book your clinic appointment online.">
 <title>Clinic Appointment Booking</title>
 
 <style>
 :root {
-  --bg: #f4f7f6;
+  --primary: #087f8c;
+  --primary-dark: #075c68;
+  --secondary: #14b8a6;
+  --bg: #e9f5f7;
   --card: #ffffff;
-  --text: #17302b;
-  --muted: #5d7570;
-  --accent: #0f766e;
+  --text: #173b45;
+  --muted: #69828a;
+  --border: #dce9ed;
+  --success: #15803d;
   --danger: #b42318;
-  --success: #067647;
-  --border: #d6e2df;
 }
 
 * {
@@ -25,213 +27,400 @@
 
 body {
   margin: 0;
-  padding: 20px;
-  font-family: system-ui, sans-serif;
-  background: var(--bg);
+  padding: 24px 16px;
+  font-family: Inter, system-ui, sans-serif;
   color: var(--text);
+  background:
+    radial-gradient(circle at 10% 10%, #c5f1ed 0, transparent 35%),
+    radial-gradient(circle at 90% 15%, #d4e8ff 0, transparent 32%),
+    linear-gradient(135deg, #eef9f8, #edf3ff);
+  min-height: 100vh;
 }
 
 main {
-  max-width: 760px;
+  max-width: 900px;
   margin: auto;
 }
 
-h1 {
-  font-size: 1.7rem;
-  margin-bottom: 8px;
+/* Header */
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin: 10px 0 28px;
 }
 
-h2 {
-  margin-top: 0;
+.header-copy {
+  max-width: 600px;
+}
+
+h1 {
+  font-size: clamp(1.6rem, 4vw, 2.2rem);
+  margin: 0 0 10px;
+  color: #124451;
 }
 
 .sub {
   color: var(--muted);
-  line-height: 1.6;
+  line-height: 1.7;
+  margin: 0;
 }
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.brand-logo {
+  width: 58px;
+  height: 58px;
+  background: white;
+  border-radius: 16px;
+  padding: 8px;
+  box-shadow: 0 5px 18px #174e5c18;
+}
+
+.brand-name {
+  font-weight: 800;
+  font-size: .95rem;
+  color: var(--primary-dark);
+  line-height: 1.3;
+}
+
+.brand-caption {
+  font-size: .72rem;
+  color: var(--muted);
+}
+
+/* Panels */
 
 .panel {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 18px;
-  margin: 16px 0;
+  background: rgba(255,255,255,.94);
+  border: 1px solid #ffffff;
+  border-radius: 18px;
+  padding: 22px;
+  margin: 18px 0;
+  box-shadow: 0 8px 28px #234e5b0d;
 }
 
-form {
-  display: grid;
+.section-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+h2 {
+  font-size: 1.15rem;
+  margin: 0;
+}
+
+.small-text {
+  color: var(--muted);
+  font-size: .85rem;
+}
+
+/* Filters */
+
+.filters {
+  display: flex;
+  gap: 12px;
+  align-items: end;
+  flex-wrap: wrap;
+  margin-bottom: 22px;
 }
 
 label {
   display: grid;
-  gap: 5px;
+  gap: 7px;
   color: var(--muted);
+  font-size: .9rem;
 }
 
-input,
-select {
-  width: 100%;
+select,
+input {
   font: inherit;
-  padding: 11px;
+  padding: 11px 13px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 10px;
   background: white;
   color: var(--text);
-}
-
-input:focus,
-select:focus {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
+  min-width: 180px;
 }
 
 button {
   font: inherit;
-  padding: 11px 16px;
-  border: 0;
-  border-radius: 8px;
-  background: var(--accent);
-  color: white;
   cursor: pointer;
+  border: none;
+  border-radius: 10px;
+  padding: 11px 16px;
+  background: var(--primary);
+  color: white;
+  transition: .2s;
+}
+
+button:hover:not(:disabled) {
+  background: var(--primary-dark);
 }
 
 button:disabled {
-  opacity: .5;
   cursor: not-allowed;
+  opacity: .5;
 }
 
 button.secondary {
-  background: transparent;
-  color: var(--accent);
-  border: 1px solid var(--accent);
+  background: #e8f5f5;
+  color: var(--primary-dark);
 }
 
-.toolbar {
+button.secondary:hover:not(:disabled) {
+  background: #d4eeee;
+}
+
+/* Date selector */
+
+.date-section {
+  margin-top: 20px;
+}
+
+.date-nav {
   display: flex;
+  gap: 9px;
+  overflow-x: auto;
+  padding: 4px 2px 12px;
+  scrollbar-width: thin;
+}
+
+.date-button {
+  flex: 0 0 88px;
+  min-height: 78px;
+  border: 1px solid var(--border);
+  background: #f7fbfc;
+  color: var(--text);
+  border-radius: 13px;
+  padding: 10px 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.date-button .day-name {
+  font-size: .75rem;
+  color: var(--muted);
+}
+
+.date-button .day-number {
+  font-size: 1.25rem;
+  font-weight: 800;
+}
+
+.date-button .month-name {
+  font-size: .72rem;
+}
+
+.date-button.active {
+  background: linear-gradient(145deg, var(--primary), #12a99a);
+  color: white;
+  border-color: transparent;
+  box-shadow: 0 5px 14px #087f8c35;
+}
+
+.date-button.active .day-name,
+.date-button.active .month-name {
+  color: #e0fffb;
+}
+
+/* Doctor and time selection */
+
+.appointment-heading {
+  margin: 18px 0 12px;
+  display: flex;
+  justify-content: space-between;
   gap: 10px;
-  align-items: end;
-  flex-wrap: wrap;
-  margin: 20px 0;
-}
-
-.toolbar label {
-  min-width: 190px;
-}
-
-.row {
-  display: flex;
-  gap: 8px;
+  align-items: center;
   flex-wrap: wrap;
 }
 
-.slots {
+.time-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(125px, 1fr));
+  gap: 10px;
 }
 
-.slot {
-  background: var(--card);
+.time-card {
+  background: #f5fbfc;
   border: 1px solid var(--border);
   border-radius: 12px;
-  padding: 14px;
+  padding: 12px;
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.slot .prov {
-  font-weight: 600;
+.time-card .doctor {
+  font-weight: 700;
+  font-size: .87rem;
 }
 
-.slot .when {
+.time-card .time {
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--primary-dark);
+}
+
+.time-card .availability {
+  font-size: .72rem;
+  color: var(--success);
+}
+
+.time-card button {
+  width: 100%;
+  padding: 9px 7px;
+  font-size: .82rem;
+}
+
+.time-card.taken {
+  opacity: .55;
+  background: #f2f4f5;
+}
+
+.time-card.taken .availability {
+  color: var(--danger);
+}
+
+.empty {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 30px 15px;
   color: var(--muted);
-  font-size: .9rem;
-  line-height: 1.5;
+  background: #f7fbfc;
+  border-radius: 12px;
+  border: 1px dashed var(--border);
 }
 
-.slot.booked {
-  opacity: .6;
+/* Booking form */
+
+form {
+  display: grid;
+  gap: 14px;
 }
 
-.badge {
-  font-size: .85rem;
-  color: var(--muted);
+form label {
+  display: grid;
+}
+
+form input {
+  width: 100%;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
 .msg {
-  padding: 12px;
-  margin: 12px 0;
-  border-radius: 8px;
+  padding: 13px;
+  margin: 14px 0;
+  border-radius: 10px;
   line-height: 1.5;
 }
 
 .msg.error {
-  border: 1px solid var(--danger);
   color: var(--danger);
-  background: #fff5f4;
+  background: #fff1f0;
+  border: 1px solid #ffd1cd;
 }
 
 .msg.success {
-  border: 1px solid var(--success);
   color: var(--success);
-  background: #ecfdf3;
-}
-
-.hidden {
-  display: none !important;
+  background: #edfff3;
+  border: 1px solid #c3efd0;
 }
 
 .confirm dl {
   display: grid;
   grid-template-columns: max-content 1fr;
-  gap: 8px 14px;
-}
-
-.confirm dd {
-  margin: 0;
-  overflow-wrap: anywhere;
+  gap: 9px 16px;
 }
 
 .confirm dt {
   color: var(--muted);
 }
 
-.empty {
-  padding: 22px;
-  text-align: center;
-  background: white;
-  border: 1px dashed var(--border);
-  border-radius: 12px;
-  color: var(--muted);
-  grid-column: 1 / -1;
+.confirm dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-weight: 600;
+}
+
+.hidden {
+  display: none !important;
 }
 
 footer {
-  margin-top: 35px;
-  padding: 15px 0;
   text-align: center;
+  padding: 25px 0 10px;
+  font-size: .8rem;
   color: var(--muted);
-  font-size: .85rem;
 }
 
-@media (max-width: 480px) {
+@media(max-width: 560px) {
   body {
-    padding: 14px;
+    padding: 15px 11px;
   }
 
-  h1 {
-    font-size: 1.45rem;
+  header {
+    align-items: flex-start;
+    gap: 10px;
   }
 
-  .toolbar {
+  .brand {
+    gap: 6px;
+  }
+
+  .brand-logo {
+    width: 45px;
+    height: 45px;
+  }
+
+  .brand-name {
+    font-size: .75rem;
+  }
+
+  .brand-caption {
+    font-size: .62rem;
+  }
+
+  .panel {
+    padding: 16px;
+    border-radius: 14px;
+  }
+
+  .filters {
     align-items: stretch;
   }
 
-  .toolbar label,
-  .toolbar button {
+  .filters label,
+  .filters select,
+  .filters button {
     width: 100%;
+  }
+
+  .time-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .date-button {
+    flex-basis: 76px;
   }
 }
 </style>
@@ -240,61 +429,105 @@ footer {
 <body>
 <main>
 
+<!-- Hospital branding -->
 <header>
-  <h1>Book a Clinic Appointment</h1>
-  <p class="sub">
-    Choose an available doctor and appointment time.
-    Enter your details to complete your booking and receive confirmation.
-  </p>
+  <div class="header-copy">
+    <h1>Book Your Appointment</h1>
+    <p class="sub">
+      Find a doctor, select a convenient date and time,
+      and confirm your appointment online.
+    </p>
+  </div>
+
+  <div class="brand">
+    <svg class="brand-logo" viewBox="0 0 100 100"
+         xmlns="http://www.w3.org/2000/svg"
+         role="img" aria-label="Medical logo">
+      <rect x="5" y="5" width="90" height="90" rx="22"
+            fill="#e6f7f5"/>
+      <path d="M50 17v66M17 50h66"
+            stroke="#087f8c"
+            stroke-width="17"
+            stroke-linecap="round"/>
+      <circle cx="50" cy="50" r="9" fill="white"/>
+    </svg>
+
+    <div>
+      <div class="brand-name">MEDICAL CARE</div>
+      <div class="brand-caption">Appointment Portal</div>
+    </div>
+  </div>
 </header>
 
-<!-- Appointment filters -->
-<div class="toolbar" id="bookingToolbar">
-  <label for="provider">
-    Select doctor
-    <select id="provider">
-      <option value="">All doctors</option>
-    </select>
-  </label>
+<!-- Appointment selection -->
+<section class="panel">
 
-  <button class="secondary" id="refresh" type="button">
-    Refresh appointments
-  </button>
-</div>
+  <div class="section-heading">
+    <h2>Find an Appointment</h2>
+    <span class="small-text">Select a date and time</span>
+  </div>
 
-<!-- Error messages -->
-<div id="error" class="msg error hidden" role="alert"></div>
+  <div class="filters">
+    <label>
+      Choose a doctor
+      <select id="provider">
+        <option value="">All doctors</option>
+      </select>
+    </label>
 
-<!-- Appointment form -->
+    <button class="secondary" id="refresh" type="button">
+      Refresh
+    </button>
+  </div>
+
+  <div id="error" class="msg error hidden" role="alert"></div>
+
+  <div class="date-section">
+    <div class="section-heading">
+      <h2>Choose a Date</h2>
+      <span class="small-text" id="dateCount"></span>
+    </div>
+
+    <div class="date-nav" id="dateNav" aria-label="Appointment dates"></div>
+  </div>
+
+  <div class="appointment-heading">
+    <h2>Available Times</h2>
+    <span class="small-text" id="selectedDateLabel"></span>
+  </div>
+
+  <div id="slots" class="time-grid" aria-live="polite">
+    <div class="empty">Loading appointments...</div>
+  </div>
+
+</section>
+
+<!-- Booking details -->
 <section id="bookPanel" class="panel hidden">
-  <h2>Complete Your Booking</h2>
+  <div class="section-heading">
+    <h2>Complete Your Booking</h2>
+  </div>
 
-  <p id="chosen" class="badge"></p>
+  <p id="chosen" class="small-text"></p>
 
   <form id="bookForm" novalidate>
 
-    <label for="name">
+    <label>
       Full name
-      <input
-        id="name"
-        type="text"
-        autocomplete="name"
-        maxlength="120"
-        placeholder="Enter your full name"
-        required
-      >
+      <input id="name" type="text"
+             autocomplete="name"
+             maxlength="120"
+             placeholder="Enter your full name"
+             required>
     </label>
 
-    <label for="email">
+    <label>
       Email address
-      <input
-        id="email"
-        type="email"
-        autocomplete="email"
-        maxlength="254"
-        placeholder="Enter your email address"
-        required
-      >
+      <input id="email" type="email"
+             autocomplete="email"
+             maxlength="254"
+             placeholder="Enter your email address"
+             required>
     </label>
 
     <div class="row">
@@ -302,29 +535,21 @@ footer {
         Confirm Appointment
       </button>
 
-      <button
-        id="cancelPick"
-        class="secondary"
-        type="button"
-      >
-        Choose Another Time
+      <button id="cancelPick" class="secondary" type="button">
+        Change Appointment
       </button>
     </div>
-
   </form>
 </section>
 
-<!-- Booking confirmation -->
-<section
-  id="confirmPanel"
-  class="panel confirm hidden"
-  aria-live="polite"
->
+<!-- Confirmation -->
+<section id="confirmPanel" class="panel confirm hidden"
+         aria-live="polite">
   <h2 id="confirmTitle">Booking Confirmed</h2>
 
   <div class="msg success">
     Your appointment has been successfully booked.
-    Keep your booking reference for future enquiries.
+    Please keep your booking reference.
   </div>
 
   <dl>
@@ -347,24 +572,15 @@ footer {
     <dd id="cWhen"></dd>
   </dl>
 
-  <div class="row" style="margin-top:18px">
+  <div class="row" style="margin-top:20px">
     <button id="bookAnother" type="button">
       Book Another Appointment
     </button>
   </div>
 </section>
 
-<!-- Available appointments -->
-<section>
-  <h2>Available Appointment Times</h2>
-
-  <div id="slots" class="slots" aria-live="polite">
-    Loading available appointments...
-  </div>
-</section>
-
 <footer>
-  Clinic Appointment Booking System
+  Clinic Appointment Booking Portal
 </footer>
 
 </main>
@@ -372,64 +588,52 @@ footer {
 <script>
 'use strict';
 
-// ---------------------------------------------------------------------------
-// Application state
-// ---------------------------------------------------------------------------
-
 const $ = id => document.getElementById(id);
 
 let allSlots = [];
 let chosen = null;
 let attemptKey = null;
+let selectedDate = null;
 
-// ---------------------------------------------------------------------------
-// API communication
-// ---------------------------------------------------------------------------
+// --------------------------------------------------
+// API
+// --------------------------------------------------
 
-// Public patient endpoints do not require an API key.
 async function api(method, endpoint, body, extraHeaders = {}) {
 
-  const headers = {
-    ...extraHeaders
-  };
-
-  const options = {
-    method,
-    headers
-  };
+  const headers = {...extraHeaders};
+  const options = {method, headers};
 
   if (body !== undefined && body !== null) {
     headers['Content-Type'] = 'application/json';
     options.body = JSON.stringify(body);
   }
 
-  const res = await fetch(endpoint, options);
+  const response = await fetch(endpoint, options);
 
   let data = {};
 
   try {
-    data = await res.json();
-  } catch (error) {
-    // Handle responses without JSON.
-  }
+    data = await response.json();
+  } catch (error) {}
 
-  if (!res.ok) {
-    const err = new Error(
-      data.error || 'The request could not be completed.'
+  if (!response.ok) {
+    const error = new Error(
+      data.error || 'Request failed'
     );
 
-    err.status = res.status;
-    err.retryAfter = res.headers.get('Retry-After');
+    error.status = response.status;
+    error.retryAfter = response.headers.get('Retry-After');
 
-    throw err;
+    throw error;
   }
 
   return data;
 }
 
-// ---------------------------------------------------------------------------
-// Messages
-// ---------------------------------------------------------------------------
+// --------------------------------------------------
+// Helpers
+// --------------------------------------------------
 
 function showError(message) {
   $('error').textContent = message;
@@ -440,30 +644,35 @@ function clearError() {
   showError('');
 }
 
-// ---------------------------------------------------------------------------
-// Date formatting
-// ---------------------------------------------------------------------------
+function dateKey(value) {
+  const date = new Date(value);
 
-function fmt(iso) {
-  const date = new Date(iso);
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0')
+  ].join('-');
+}
 
-  if (Number.isNaN(date.getTime())) {
-    return 'Date unavailable';
-  }
-
-  return date.toLocaleString(undefined, {
+function formatDate(value) {
+  return new Date(value).toLocaleDateString(undefined, {
     weekday: 'long',
     day: 'numeric',
-    month: 'short',
-    year: 'numeric',
+    month: 'long',
+    year: 'numeric'
+  });
+}
+
+function formatTime(value) {
+  return new Date(value).toLocaleTimeString(undefined, {
     hour: '2-digit',
     minute: '2-digit'
   });
 }
 
-// ---------------------------------------------------------------------------
-// Provider selection
-// ---------------------------------------------------------------------------
+// --------------------------------------------------
+// Providers
+// --------------------------------------------------
 
 function renderProviders() {
 
@@ -471,21 +680,14 @@ function renderProviders() {
   const previous = select.value;
 
   const providers = [
-    ...new Set(
-      allSlots.map(slot => slot.provider)
-    )
+    ...new Set(allSlots.map(slot => slot.provider))
   ].sort();
 
   select.innerHTML = '';
-
-  select.appendChild(
-    new Option('All doctors', '')
-  );
+  select.appendChild(new Option('All doctors', ''));
 
   providers.forEach(provider => {
-    select.appendChild(
-      new Option(provider, provider)
-    );
+    select.appendChild(new Option(provider, provider));
   });
 
   select.value = providers.includes(previous)
@@ -493,27 +695,119 @@ function renderProviders() {
     : '';
 }
 
-// ---------------------------------------------------------------------------
-// Display appointment slots
-// ---------------------------------------------------------------------------
+// --------------------------------------------------
+// Dates
+// --------------------------------------------------
+
+function getDates() {
+
+  const today = dateKey(new Date());
+
+  const futureSlots = allSlots.filter(slot =>
+    new Date(slot.start).getTime() > Date.now()
+  );
+
+  return [
+    ...new Set(
+      futureSlots.map(slot => dateKey(slot.start))
+    )
+  ].sort();
+}
+
+function renderDates() {
+
+  const nav = $('dateNav');
+  const dates = getDates();
+
+  nav.innerHTML = '';
+
+  $('dateCount').textContent =
+    dates.length + ' available date' +
+    (dates.length === 1 ? '' : 's');
+
+  if (!dates.length) {
+    selectedDate = null;
+    $('selectedDateLabel').textContent = '';
+    return;
+  }
+
+  if (!dates.includes(selectedDate)) {
+    selectedDate = dates[0];
+  }
+
+  dates.forEach(key => {
+
+    const date = new Date(key + 'T12:00:00');
+
+    const button = document.createElement('button');
+    button.type = 'button';
+
+    button.className =
+      'date-button' +
+      (key === selectedDate ? ' active' : '');
+
+    const weekday = document.createElement('span');
+    weekday.className = 'day-name';
+    weekday.textContent = date.toLocaleDateString(
+      undefined, {weekday: 'short'}
+    );
+
+    const number = document.createElement('span');
+    number.className = 'day-number';
+    number.textContent = date.getDate();
+
+    const month = document.createElement('span');
+    month.className = 'month-name';
+    month.textContent = date.toLocaleDateString(
+      undefined, {month: 'short'}
+    );
+
+    button.append(weekday, number, month);
+
+    button.addEventListener('click', () => {
+      selectedDate = key;
+      renderDates();
+      renderSlots();
+    });
+
+    nav.appendChild(button);
+  });
+
+  $('selectedDateLabel').textContent =
+    formatDate(selectedDate + 'T12:00:00');
+}
+
+// --------------------------------------------------
+// Appointment time slots
+// --------------------------------------------------
 
 function renderSlots() {
 
   const box = $('slots');
   const provider = $('provider').value;
 
-  const slots = allSlots.filter(slot =>
-    (!provider || slot.provider === provider)
-  );
+  box.innerHTML = '';
 
-  box.textContent = '';
+  const slots = allSlots.filter(slot => {
+
+    const correctDate =
+      selectedDate &&
+      dateKey(slot.start) === selectedDate;
+
+    const correctProvider =
+      !provider || slot.provider === provider;
+
+    return correctDate && correctProvider;
+  }).sort((a, b) =>
+    new Date(a.start) - new Date(b.start)
+  );
 
   if (!slots.length) {
     const empty = document.createElement('div');
 
     empty.className = 'empty';
     empty.textContent =
-      'No appointment slots are currently available. Please check again later.';
+      'No appointments are available for this selection. Choose another date or doctor.';
 
     box.appendChild(empty);
     return;
@@ -521,68 +815,50 @@ function renderSlots() {
 
   slots.forEach(slot => {
 
+    const available =
+      slot.available &&
+      new Date(slot.start).getTime() > Date.now();
+
     const card = document.createElement('div');
 
     card.className =
-      'slot' + (slot.available ? '' : ' booked');
+      'time-card' + (available ? '' : ' taken');
 
-    const providerName = document.createElement('div');
-
-    providerName.className = 'prov';
-    providerName.textContent = slot.provider;
+    const doctor = document.createElement('div');
+    doctor.className = 'doctor';
+    doctor.textContent = slot.provider;
 
     const time = document.createElement('div');
-
-    time.className = 'when';
-
-    time.textContent =
-      fmt(slot.start) + ' – ' +
-      new Date(slot.end).toLocaleTimeString(undefined, {
-        hour: '2-digit',
-        minute: '2-digit'
-      });
+    time.className = 'time';
+    time.textContent = formatTime(slot.start);
 
     const status = document.createElement('div');
-
-    status.className = 'badge';
-    status.textContent = slot.available
+    status.className = 'availability';
+    status.textContent = available
       ? 'Available'
-      : 'Already booked';
-
-    const button = document.createElement('button');
-
-    button.type = 'button';
-    button.textContent = slot.available
-      ? 'Book This Appointment'
       : 'Unavailable';
 
-    button.disabled = !slot.available;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = available ? 'Select' : 'Taken';
+    button.disabled = !available;
 
-    button.addEventListener('click', () => {
-      pick(slot);
-    });
+    button.addEventListener('click', () => pick(slot));
 
-    card.append(
-      providerName,
-      time,
-      status,
-      button
-    );
+    card.append(doctor, time, status, button);
 
     box.appendChild(card);
   });
 }
 
-// ---------------------------------------------------------------------------
-// Load appointments from backend
-// ---------------------------------------------------------------------------
+// --------------------------------------------------
+// Load appointments
+// --------------------------------------------------
 
 async function loadSlots() {
 
-  const refreshButton = $('refresh');
-
-  refreshButton.disabled = true;
-  refreshButton.textContent = 'Loading...';
+  $('refresh').disabled = true;
+  $('refresh').textContent = 'Loading...';
 
   try {
 
@@ -591,47 +867,42 @@ async function loadSlots() {
     const data = await api('GET', '/slots');
 
     if (!Array.isArray(data.slots)) {
-      throw new Error(
-        'Unexpected appointment data received from the server.'
-      );
+      throw new Error('Invalid appointment data received.');
     }
 
     allSlots = data.slots;
 
     renderProviders();
+    renderDates();
     renderSlots();
 
     return true;
 
   } catch (error) {
 
-    $('slots').textContent = '';
+    $('slots').innerHTML = '';
 
     const empty = document.createElement('div');
-
     empty.className = 'empty';
-    empty.textContent =
-      'Unable to retrieve appointment times. Please try again.';
+    empty.textContent = 'Unable to load appointments. Please try again.';
 
     $('slots').appendChild(empty);
 
-    showError(
-      'Could not load appointments: ' + error.message
-    );
+    showError('Could not load appointments: ' + error.message);
 
     return false;
 
   } finally {
 
-    refreshButton.disabled = false;
-    refreshButton.textContent = 'Refresh appointments';
+    $('refresh').disabled = false;
+    $('refresh').textContent = 'Refresh';
 
   }
 }
 
-// ---------------------------------------------------------------------------
-// Select an appointment
-// ---------------------------------------------------------------------------
+// --------------------------------------------------
+// Select appointment
+// --------------------------------------------------
 
 function pick(slot) {
 
@@ -640,24 +911,24 @@ function pick(slot) {
 
   clearError();
 
-  $('confirmPanel').classList.add('hidden');
-
   $('chosen').textContent =
-    slot.provider + ' · ' + fmt(slot.start);
+    slot.provider + ' | ' +
+    formatDate(slot.start) + ' | ' +
+    formatTime(slot.start);
 
   $('bookPanel').classList.remove('hidden');
 
   $('name').focus();
 
-  window.scrollTo({
-    top: 0,
-    behavior: 'smooth'
+  $('bookPanel').scrollIntoView({
+    behavior: 'smooth',
+    block: 'start'
   });
 }
 
-// ---------------------------------------------------------------------------
-// Event listeners
-// ---------------------------------------------------------------------------
+// --------------------------------------------------
+// Filters
+// --------------------------------------------------
 
 $('provider').addEventListener('change', renderSlots);
 
@@ -665,10 +936,10 @@ $('refresh').addEventListener('click', loadSlots);
 
 $('cancelPick').addEventListener('click', () => {
 
-  $('bookPanel').classList.add('hidden');
-
   chosen = null;
   attemptKey = null;
+
+  $('bookPanel').classList.add('hidden');
 
   clearError();
 
@@ -676,12 +947,12 @@ $('cancelPick').addEventListener('click', () => {
 
 $('bookAnother').addEventListener('click', () => {
 
-  $('confirmPanel').classList.add('hidden');
+  chosen = null;
+  attemptKey = null;
 
   $('bookForm').reset();
 
-  chosen = null;
-  attemptKey = null;
+  $('confirmPanel').classList.add('hidden');
 
   loadSlots();
 
@@ -692,9 +963,9 @@ $('bookAnother').addEventListener('click', () => {
 
 });
 
-// ---------------------------------------------------------------------------
-// Submit appointment booking
-// ---------------------------------------------------------------------------
+// --------------------------------------------------
+// Submit booking
+// --------------------------------------------------
 
 $('bookForm').addEventListener('submit', async event => {
 
@@ -707,41 +978,37 @@ $('bookForm').addEventListener('submit', async event => {
 
   if (!name) {
     showError('Please enter your full name.');
-    $('name').focus();
     return;
   }
 
   if (name.length > 120) {
-    showError('Your name must not exceed 120 characters.');
+    showError('Your name is too long.');
     return;
   }
 
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     showError('Please enter a valid email address.');
-    $('email').focus();
     return;
   }
 
   if (email.length > 254) {
-    showError('Please use an email address of 254 characters or fewer.');
+    showError('Please use a shorter email address.');
     return;
   }
 
   if (!chosen) {
-    showError('Please select an appointment time first.');
+    showError('Please select an appointment.');
     return;
   }
 
-  // Keep the same key when retrying an uncertain request.
-  // This prevents duplicate bookings if the original request succeeded.
   if (!attemptKey) {
     attemptKey = crypto.randomUUID();
   }
 
-  const submitButton = $('submitBtn');
+  const button = $('submitBtn');
 
-  submitButton.disabled = true;
-  submitButton.textContent = 'Processing Booking...';
+  button.disabled = true;
+  button.textContent = 'Processing...';
 
   try {
 
@@ -758,19 +1025,17 @@ $('bookForm').addEventListener('submit', async event => {
       }
     );
 
-    // Display confirmation.
     $('cId').textContent = booking.id;
     $('cStatus').textContent = booking.status;
     $('cName').textContent = booking.name;
     $('cEmail').textContent = booking.email;
     $('cDoctor').textContent = chosen.provider;
-    $('cWhen').textContent = fmt(chosen.start);
+    $('cWhen').textContent = formatDate(chosen.start) +
+      ' at ' + formatTime(chosen.start);
 
-    $('confirmTitle').textContent =
-      'Booking Confirmed';
+    $('confirmTitle').textContent = 'Booking Confirmed';
 
     $('bookPanel').classList.add('hidden');
-
     $('confirmPanel').classList.remove('hidden');
 
     $('bookForm').reset();
@@ -780,12 +1045,11 @@ $('bookForm').addEventListener('submit', async event => {
 
     clearError();
 
-    // Refresh available appointments.
     await loadSlots();
 
-    window.scrollTo({
-      top: 0,
-      behavior: 'smooth'
+    $('confirmPanel').scrollIntoView({
+      behavior: 'smooth',
+      block: 'start'
     });
 
   } catch (error) {
@@ -793,11 +1057,10 @@ $('bookForm').addEventListener('submit', async event => {
     if (error.status === 409) {
 
       showError(
-        'This appointment has just been booked by another patient. Please select another time.'
+        'This appointment has just been taken. Please select another.'
       );
 
       attemptKey = null;
-
       await loadSlots();
 
     } else if (error.status === 429) {
@@ -805,13 +1068,7 @@ $('bookForm').addEventListener('submit', async event => {
       showError(
         'Too many booking attempts. Please wait ' +
         (error.retryAfter || 'a moment') +
-        ' seconds before trying again.'
-      );
-
-    } else if (error.status === 400) {
-
-      showError(
-        'Please check your booking details: ' + error.message
+        ' seconds.'
       );
 
     } else if (error.status === 404) {
@@ -821,35 +1078,32 @@ $('bookForm').addEventListener('submit', async event => {
       );
 
       attemptKey = null;
-
       await loadSlots();
 
     } else {
 
       showError(
-        'Booking could not be confirmed: ' +
-        error.message +
-        '. You can retry without submitting a duplicate booking.'
+        'Booking could not be confirmed: ' + error.message +
+        '. You may retry safely.'
       );
 
     }
 
   } finally {
 
-    submitButton.disabled = false;
-    submitButton.textContent = 'Confirm Appointment';
+    button.disabled = false;
+    button.textContent = 'Confirm Appointment';
 
   }
 
 });
 
-// ---------------------------------------------------------------------------
+// --------------------------------------------------
 // Start application
-// ---------------------------------------------------------------------------
+// --------------------------------------------------
 
 loadSlots();
 
 </script>
-
 </body>
 </html>
