@@ -8,7 +8,7 @@ const fs = require('fs');
 const path = require('path');
 
 // ---------------------------------------------------------------------------
-// CONFIGURATION
+// Configuration
 // ---------------------------------------------------------------------------
 
 const API_KEY = process.env.API_KEY;
@@ -20,20 +20,14 @@ if (!API_KEY || !DATABASE_URL) {
   process.exit(1);
 }
 
+const isProduction =
+  process.env.NODE_ENV === 'production' ||
+  Boolean(process.env.RENDER);
+
 const SESSION_COOKIE = 'clinic_session';
-const SESSION_DURATION_SECONDS = 8 * 60 * 60;
-const SESSION_DURATION_MS = SESSION_DURATION_SECONDS * 1000;
+const SESSION_DURATION_MS = 8 * 60 * 60 * 1000; // 8 hours
 
-const isProduction = process.env.NODE_ENV === 'production';
 const isLocalDb = /localhost|127\.0\.0\.1/.test(DATABASE_URL);
-
-// Derive a signing secret from the existing API key.
-// The API key itself is never sent to the browser after login.
-const SESSION_SECRET = crypto
-  .createHash('sha256')
-  .update('clinic-booking-session-v1:')
-  .update(API_KEY)
-  .digest();
 
 const pool = new Pool({
   connectionString: DATABASE_URL,
@@ -49,8 +43,502 @@ const RATE_LIMIT = 5;
 const RATE_WINDOW_MS = 60 * 1000;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+// Login rate limiting: 10 failed attempts per IP per 15 minutes.
+const loginAttempts = new Map();
+const LOGIN_MAX_ATTEMPTS = 10;
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+
 // ---------------------------------------------------------------------------
-// DATABASE SCHEMA
+// Load the original appointment interface
+// IMPORTANT: indexHtml must be declared before authenticatedHtml.
+// ---------------------------------------------------------------------------
+
+const indexHtml = fs.readFileSync(
+  path.join(__dirname, 'public', 'index.html'),
+  'utf8'
+);
+
+// ---------------------------------------------------------------------------
+// Authentication helpers
+// ---------------------------------------------------------------------------
+
+function safeEqual(a, b) {
+  const ab = Buffer.from(String(a));
+  const bb = Buffer.from(String(b));
+
+  return (
+    ab.length === bb.length &&
+    crypto.timingSafeEqual(ab, bb)
+  );
+}
+
+function createSessionToken() {
+  const issuedAt = Date.now().toString();
+
+  const signature = crypto
+    .createHmac('sha256', API_KEY)
+    .update(issuedAt)
+    .digest('hex');
+
+  return `${issuedAt}.${signature}`;
+}
+
+function verifySessionToken(token) {
+  if (typeof token !== 'string') {
+    return false;
+  }
+
+  const parts = token.split('.');
+
+  if (parts.length !== 2) {
+    return false;
+  }
+
+  const [issuedAt, suppliedSignature] = parts;
+
+  if (
+    !/^\d+$/.test(issuedAt) ||
+    !/^[a-f0-9]{64}$/i.test(suppliedSignature)
+  ) {
+    return false;
+  }
+
+  const timestamp = Number(issuedAt);
+  const age = Date.now() - timestamp;
+
+  if (
+    !Number.isSafeInteger(timestamp) ||
+    age < 0 ||
+    age > SESSION_DURATION_MS
+  ) {
+    return false;
+  }
+
+  const expectedSignature = crypto
+    .createHmac('sha256', API_KEY)
+    .update(issuedAt)
+    .digest('hex');
+
+  return safeEqual(suppliedSignature, expectedSignature);
+}
+
+function getCookie(req, cookieName) {
+  const header = req.headers.cookie;
+
+  if (!header) {
+    return null;
+  }
+
+  const cookies = header.split(';');
+
+  for (const item of cookies) {
+    const separator = item.indexOf('=');
+
+    if (separator === -1) continue;
+
+    const name = item.slice(0, separator).trim();
+    const value = item.slice(separator + 1).trim();
+
+    if (name === cookieName) {
+      try {
+        return decodeURIComponent(value);
+      } catch {
+        return value;
+      }
+    }
+  }
+
+  return null;
+}
+
+function hasValidSession(req) {
+  const token = getCookie(req, SESSION_COOKIE);
+
+  if (verifySessionToken(token)) {
+    return true;
+  }
+
+  // Also support authenticated API clients using X-API-Key.
+  const headerKey = req.get('X-API-Key');
+
+  return Boolean(headerKey && safeEqual(headerKey, API_KEY));
+}
+
+function setSessionCookie(res) {
+  const token = createSessionToken();
+
+  const cookieParts = [
+    `${SESSION_COOKIE}=${encodeURIComponent(token)}`,
+    'Path=/',
+    `Max-Age=${Math.floor(SESSION_DURATION_MS / 1000)}`,
+    'HttpOnly',
+    'SameSite=Strict',
+  ];
+
+  if (isProduction) {
+    cookieParts.push('Secure');
+  }
+
+  res.setHeader('Set-Cookie', cookieParts.join('; '));
+}
+
+function clearSessionCookie(res) {
+  const cookieParts = [
+    `${SESSION_COOKIE}=`,
+    'Path=/',
+    'Max-Age=0',
+    'HttpOnly',
+    'SameSite=Strict',
+  ];
+
+  if (isProduction) {
+    cookieParts.push('Secure');
+  }
+
+  res.setHeader('Set-Cookie', cookieParts.join('; '));
+}
+
+function sendError(res, status, message) {
+  return res.status(status).json({ error: message });
+}
+
+// ---------------------------------------------------------------------------
+// Login rate limiting
+// ---------------------------------------------------------------------------
+
+function checkLoginRateLimit(ip) {
+  const now = Date.now();
+  const record = loginAttempts.get(ip);
+
+  if (!record || now - record.startedAt >= LOGIN_WINDOW_MS) {
+    loginAttempts.set(ip, {
+      count: 0,
+      startedAt: now,
+    });
+
+    return true;
+  }
+
+  return record.count < LOGIN_MAX_ATTEMPTS;
+}
+
+function recordFailedLogin(ip) {
+  const now = Date.now();
+  let record = loginAttempts.get(ip);
+
+  if (!record || now - record.startedAt >= LOGIN_WINDOW_MS) {
+    record = {
+      count: 0,
+      startedAt: now,
+    };
+  }
+
+  record.count += 1;
+  loginAttempts.set(ip, record);
+}
+
+// Periodically remove expired login-rate-limit records.
+const loginCleanup = setInterval(() => {
+  const now = Date.now();
+
+  for (const [ip, record] of loginAttempts.entries()) {
+    if (now - record.startedAt >= LOGIN_WINDOW_MS) {
+      loginAttempts.delete(ip);
+    }
+  }
+}, 10 * 60 * 1000);
+
+loginCleanup.unref();
+
+// ---------------------------------------------------------------------------
+// API authentication middleware
+// ---------------------------------------------------------------------------
+
+function requireApiKey(req, res, next) {
+  if (!hasValidSession(req)) {
+    return sendError(res, 401, 'unauthorized');
+  }
+
+  next();
+}
+
+// ---------------------------------------------------------------------------
+// Login page
+// ---------------------------------------------------------------------------
+
+const loginHtml = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Secure Login | Medical Care</title>
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: #f3f8fb;
+      font-family: Arial, Helvetica, sans-serif;
+      color: #183247;
+    }
+
+    .login-card {
+      width: 100%;
+      max-width: 420px;
+      padding: 42px 34px;
+      background: #ffffff;
+      border-radius: 16px;
+      box-shadow: 0 12px 40px rgba(20, 65, 90, 0.10);
+      text-align: center;
+    }
+
+    .logo {
+      width: 58px;
+      height: 58px;
+      margin: 0 auto 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 15px;
+      background: #e4f5f5;
+      color: #078b91;
+      font-size: 27px;
+      font-weight: bold;
+    }
+
+    h1 {
+      margin: 0 0 10px;
+      font-size: 25px;
+      color: #17394e;
+    }
+
+    .description {
+      margin: 0 0 28px;
+      color: #718392;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 9px;
+      text-align: left;
+      font-size: 13px;
+      font-weight: 600;
+      color: #344d60;
+    }
+
+    input {
+      display: block;
+      width: 100%;
+      padding: 14px 15px;
+      border: 1px solid #d6e2e9;
+      border-radius: 8px;
+      outline: none;
+      font-size: 15px;
+      color: #183247;
+      background: #ffffff;
+    }
+
+    input:focus {
+      border-color: #078b91;
+      box-shadow: 0 0 0 3px rgba(7, 139, 145, 0.10);
+    }
+
+    button {
+      width: 100%;
+      margin-top: 19px;
+      padding: 14px;
+      border: 0;
+      border-radius: 8px;
+      background: #078b91;
+      color: white;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: #06767c;
+    }
+
+    button:disabled {
+      opacity: 0.65;
+      cursor: not-allowed;
+    }
+
+    #message {
+      min-height: 20px;
+      margin: 15px 0 0;
+      font-size: 13px;
+      color: #c0392b;
+    }
+
+    .footer {
+      margin-top: 26px;
+      color: #93a2ad;
+      font-size: 12px;
+    }
+
+    @media (max-width: 480px) {
+      .login-card {
+        padding: 35px 23px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <main class="login-card">
+    <div class="logo">+</div>
+
+    <h1>Medical Care</h1>
+
+    <p class="description">
+      Secure access to the Clinic Booking application.
+      Enter your authorised API key to continue.
+    </p>
+
+    <form id="loginForm">
+      <label for="apiKey">API Authentication Key</label>
+
+      <input
+        id="apiKey"
+        name="apiKey"
+        type="password"
+        placeholder="Enter your API key"
+        autocomplete="current-password"
+        required
+        autofocus
+      >
+
+      <button id="loginButton" type="submit">
+        Sign In
+      </button>
+
+      <p id="message" role="alert" aria-live="polite"></p>
+    </form>
+
+    <div class="footer">
+      Protected Clinic Booking System
+    </div>
+  </main>
+
+  <script>
+    const form = document.getElementById('loginForm');
+    const input = document.getElementById('apiKey');
+    const button = document.getElementById('loginButton');
+    const message = document.getElementById('message');
+
+    form.addEventListener('submit', async function(event) {
+      event.preventDefault();
+
+      const apiKey = input.value.trim();
+
+      if (!apiKey) {
+        message.textContent = 'Please enter your API key.';
+        return;
+      }
+
+      button.disabled = true;
+      button.textContent = 'Authenticating...';
+      message.textContent = '';
+
+      try {
+        const response = await fetch('/auth/login', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ apiKey })
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          message.textContent =
+            result.error || 'Authentication failed. Check your API key.';
+          return;
+        }
+
+        input.value = '';
+        window.location.replace('/');
+
+      } catch (error) {
+        message.textContent =
+          'Unable to connect. Please try again.';
+      } finally {
+        button.disabled = false;
+        button.textContent = 'Sign In';
+      }
+    });
+  </script>
+</body>
+</html>`;
+
+// ---------------------------------------------------------------------------
+// Logout control added to the existing appointment interface.
+// The original public/index.html is otherwise preserved.
+// ---------------------------------------------------------------------------
+
+const logoutControl = `
+<style>
+  #clinicLogoutButton {
+    position: fixed;
+    right: 18px;
+    bottom: 18px;
+    z-index: 99999;
+    padding: 11px 17px;
+    border: 0;
+    border-radius: 8px;
+    background: #078b91;
+    color: #fff;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 3px 12px rgba(0,0,0,.15);
+  }
+
+  #clinicLogoutButton:hover {
+    background: #06767c;
+  }
+</style>
+
+<button id="clinicLogoutButton" type="button">Log out</button>
+
+<script>
+  document.getElementById('clinicLogoutButton')
+    .addEventListener('click', async function() {
+      this.disabled = true;
+      this.textContent = 'Logging out...';
+
+      try {
+        await fetch('/auth/logout', {
+          method: 'POST',
+          credentials: 'same-origin'
+        });
+      } finally {
+        window.location.replace('/');
+      }
+    });
+</script>
+`;
+
+const authenticatedHtml = /<\/body>/i.test(indexHtml)
+  ? indexHtml.replace(/<\/body>/i, `${logoutControl}</body>`)
+  : `${indexHtml}${logoutControl}`;
+
+// ---------------------------------------------------------------------------
+// Database schema
 // ---------------------------------------------------------------------------
 
 async function initDb() {
@@ -136,9 +624,7 @@ async function initDb() {
                 now.getUTCFullYear(),
                 now.getUTCMonth(),
                 now.getUTCDate() + day,
-                hour,
-                0,
-                0
+                hour, 0, 0
               )
             );
 
@@ -180,7 +666,7 @@ function isoNoMs(d) {
 }
 
 // ---------------------------------------------------------------------------
-// GENERAL HELPERS
+// General helpers
 // ---------------------------------------------------------------------------
 
 function isObject(v) {
@@ -219,505 +705,19 @@ function formatBooking(row) {
   };
 }
 
-function sendError(res, status, message) {
-  return res.status(status).json({ error: message });
-}
-
-function safeEqual(a, b) {
-  const ab = Buffer.from(String(a));
-  const bb = Buffer.from(String(b));
-
-  return ab.length === bb.length &&
-    crypto.timingSafeEqual(ab, bb);
-}
-
 // ---------------------------------------------------------------------------
-// SESSION AUTHENTICATION
-// ---------------------------------------------------------------------------
-
-function createSessionToken() {
-  const payload = {
-    v: 1,
-    exp: Date.now() + SESSION_DURATION_MS
-  };
-
-  const encodedPayload = Buffer
-    .from(JSON.stringify(payload))
-    .toString('base64url');
-
-  const signature = crypto
-    .createHmac('sha256', SESSION_SECRET)
-    .update(encodedPayload)
-    .digest('base64url');
-
-  return `${encodedPayload}.${signature}`;
-}
-
-function getCookie(req, name) {
-  const cookieHeader = req.headers.cookie;
-
-  if (!cookieHeader) return null;
-
-  const cookies = cookieHeader.split(';');
-
-  for (const cookie of cookies) {
-    const separator = cookie.indexOf('=');
-
-    if (separator === -1) continue;
-
-    const cookieName = cookie.slice(0, separator).trim();
-    const cookieValue = cookie.slice(separator + 1).trim();
-
-    if (cookieName === name) {
-      try {
-        return decodeURIComponent(cookieValue);
-      } catch {
-        return null;
-      }
-    }
-  }
-
-  return null;
-}
-
-function verifySession(req) {
-  const token = getCookie(req, SESSION_COOKIE);
-
-  if (!token || typeof token !== 'string') {
-    return false;
-  }
-
-  const parts = token.split('.');
-
-  if (parts.length !== 2) {
-    return false;
-  }
-
-  const [encodedPayload, receivedSignature] = parts;
-
-  const expectedSignature = crypto
-    .createHmac('sha256', SESSION_SECRET)
-    .update(encodedPayload)
-    .digest('base64url');
-
-  if (!safeEqual(receivedSignature, expectedSignature)) {
-    return false;
-  }
-
-  try {
-    const payload = JSON.parse(
-      Buffer.from(encodedPayload, 'base64url').toString('utf8')
-    );
-
-    if (
-      payload.v !== 1 ||
-      typeof payload.exp !== 'number' ||
-      payload.exp <= Date.now()
-    ) {
-      return false;
-    }
-
-    return true;
-
-  } catch {
-    return false;
-  }
-}
-
-function setSessionCookie(res, token) {
-  const cookieParts = [
-    `${SESSION_COOKIE}=${encodeURIComponent(token)}`,
-    `Max-Age=${SESSION_DURATION_SECONDS}`,
-    'Path=/',
-    'HttpOnly',
-    'SameSite=Strict'
-  ];
-
-  if (isProduction) {
-    cookieParts.push('Secure');
-  }
-
-  res.setHeader('Set-Cookie', cookieParts.join('; '));
-}
-
-function clearSessionCookie(res) {
-  const cookieParts = [
-    `${SESSION_COOKIE}=`,
-    'Max-Age=0',
-    'Path=/',
-    'HttpOnly',
-    'SameSite=Strict'
-  ];
-
-  if (isProduction) {
-    cookieParts.push('Secure');
-  }
-
-  res.setHeader('Set-Cookie', cookieParts.join('; '));
-}
-
-// ---------------------------------------------------------------------------
-// API KEY AUTHENTICATION
-// ---------------------------------------------------------------------------
-
-// Allows direct API integrations to continue using X-API-Key.
-// Browser sessions use the signed HttpOnly cookie instead.
-
-function hasValidApiKey(req) {
-  const key = req.get('X-API-Key');
-
-  return Boolean(key && safeEqual(key, API_KEY));
-}
-
-function requireAuthentication(req, res, next) {
-  const sessionValid = verifySession(req);
-  const apiKeyValid = hasValidApiKey(req);
-
-  if (!sessionValid && !apiKeyValid) {
-    return sendError(res, 401, 'unauthorized');
-  }
-
-  // Protect cookie-authenticated state-changing requests against
-  // cross-origin requests. SameSite=Strict provides an additional layer.
-  if (
-    sessionValid &&
-    !['GET', 'HEAD', 'OPTIONS'].includes(req.method)
-  ) {
-    const origin = req.get('Origin');
-
-    if (origin) {
-      const expectedOrigin = `${req.protocol}://${req.get('host')}`;
-
-      if (origin !== expectedOrigin) {
-        return sendError(res, 403, 'invalid request origin');
-      }
-    }
-  }
-
-  next();
-}
-
-// ---------------------------------------------------------------------------
-// LOGIN PAGE
-// ---------------------------------------------------------------------------
-
-// The existing booking interface is not changed.
-// This page appears only when a visitor has not authenticated.
-
-const loginHtml = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="robots" content="noindex, nofollow">
-  <title>Medical Care | Secure Access</title>
-
-  <style>
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
-
-    body {
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 24px;
-      font-family: Arial, Helvetica, sans-serif;
-      background: #f3f7fa;
-      color: #243746;
-    }
-
-    .login-card {
-      width: 100%;
-      max-width: 420px;
-      background: #ffffff;
-      border-radius: 16px;
-      padding: 42px 34px;
-      box-shadow: 0 12px 40px rgba(25, 65, 90, 0.10);
-    }
-
-    .brand {
-      text-align: center;
-      margin-bottom: 32px;
-    }
-
-    .brand-icon {
-      width: 58px;
-      height: 58px;
-      margin: 0 auto 16px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      border-radius: 16px;
-      background: #e5f5f5;
-      color: #078b91;
-      font-size: 30px;
-      font-weight: bold;
-    }
-
-    .brand h1 {
-      font-size: 25px;
-      color: #173e55;
-      margin-bottom: 8px;
-    }
-
-    .brand p {
-      font-size: 14px;
-      color: #71818c;
-      line-height: 1.5;
-    }
-
-    .form-group {
-      margin-bottom: 20px;
-    }
-
-    label {
-      display: block;
-      margin-bottom: 9px;
-      font-size: 14px;
-      font-weight: 600;
-      color: #354b59;
-    }
-
-    input {
-      width: 100%;
-      padding: 15px;
-      border: 1px solid #d7e1e7;
-      border-radius: 9px;
-      font-size: 15px;
-      outline: none;
-      transition: border-color 0.2s;
-    }
-
-    input:focus {
-      border-color: #078b91;
-      box-shadow: 0 0 0 3px rgba(7, 139, 145, 0.10);
-    }
-
-    button {
-      width: 100%;
-      padding: 15px;
-      border: none;
-      border-radius: 9px;
-      background: #078b91;
-      color: white;
-      font-size: 15px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: background 0.2s;
-    }
-
-    button:hover {
-      background: #06747a;
-    }
-
-    button:disabled {
-      opacity: 0.65;
-      cursor: not-allowed;
-    }
-
-    .message {
-      display: none;
-      margin-top: 16px;
-      padding: 12px;
-      border-radius: 8px;
-      font-size: 13px;
-      line-height: 1.5;
-    }
-
-    .message.error {
-      display: block;
-      color: #a52b2b;
-      background: #fff0f0;
-    }
-
-    .footer {
-      margin-top: 28px;
-      text-align: center;
-      font-size: 12px;
-      color: #8a9aa3;
-    }
-
-    @media (max-width: 480px) {
-      .login-card {
-        padding: 34px 24px;
-      }
-    }
-  </style>
-</head>
-
-<body>
-  <main class="login-card">
-    <div class="brand">
-      <div class="brand-icon">+</div>
-      <h1>Medical Care</h1>
-      <p>Secure access to the appointment booking portal.</p>
-    </div>
-
-    <form id="loginForm">
-      <div class="form-group">
-        <label for="apiKey">API Authentication Key</label>
-        <input
-          type="password"
-          id="apiKey"
-          name="apiKey"
-          placeholder="Enter your API key"
-          autocomplete="current-password"
-          required
-          autofocus
-        >
-      </div>
-
-      <button type="submit" id="loginButton">
-        Secure Login
-      </button>
-
-      <div id="message" class="message" role="alert"></div>
-    </form>
-
-    <div class="footer">
-      Protected Medical Care Appointment System
-    </div>
-  </main>
-
-  <script>
-    const form = document.getElementById('loginForm');
-    const input = document.getElementById('apiKey');
-    const button = document.getElementById('loginButton');
-    const message = document.getElementById('message');
-
-    form.addEventListener('submit', async function(event) {
-      event.preventDefault();
-
-      const apiKey = input.value.trim();
-
-      if (!apiKey) {
-        message.textContent = 'Please enter your API key.';
-        message.className = 'message error';
-        return;
-      }
-
-      button.disabled = true;
-      button.textContent = 'Authenticating...';
-      message.className = 'message';
-
-      try {
-        const response = await fetch('/auth/login', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          credentials: 'same-origin',
-          body: JSON.stringify({ apiKey })
-        });
-
-        const result = await response.json();
-
-        if (!response.ok) {
-          throw new Error(
-            result.error === 'unauthorized'
-              ? 'Invalid API key. Please try again.'
-              : result.error || 'Authentication failed.'
-          );
-        }
-
-        // The server sets the HttpOnly session cookie.
-        // The API key is not stored in the browser.
-        input.value = '';
-
-        window.location.replace('/');
-
-      } catch (error) {
-        message.textContent = error.message;
-        message.className = 'message error';
-
-        button.disabled = false;
-        button.textContent = 'Secure Login';
-        input.focus();
-      }
-    });
-  </script>
-</body>
-</html>`;
-
-// ---------------------------------------------------------------------------
-// EXISTING INTERFACE: ADD LOGOUT CONTROL
-// ---------------------------------------------------------------------------
-
-// The original appointment page is retained.
-// A small logout control is added without replacing its design.
-
-const logoutScript = `
-<script>
-(function () {
-  if (document.getElementById('clinicLogoutButton')) return;
-
-  const button = document.createElement('button');
-
-  button.id = 'clinicLogoutButton';
-  button.type = 'button';
-  button.textContent = 'Logout';
-
-  button.style.cssText = [
-    'position:fixed',
-    'right:18px',
-    'bottom:18px',
-    'z-index:99999',
-    'padding:11px 18px',
-    'border:0',
-    'border-radius:8px',
-    'background:#173e55',
-    'color:#fff',
-    'font-size:13px',
-    'font-weight:600',
-    'cursor:pointer',
-    'box-shadow:0 3px 12px rgba(0,0,0,.15)'
-  ].join(';');
-
-  button.addEventListener('click', async function () {
-    button.disabled = true;
-    button.textContent = 'Logging out...';
-
-    try {
-      await fetch('/auth/logout', {
-        method: 'POST',
-        credentials: 'same-origin'
-      });
-
-      window.location.replace('/');
-    } catch (error) {
-      button.disabled = false;
-      button.textContent = 'Logout';
-      alert('Unable to log out. Please try again.');
-    }
-  });
-
-  document.body.appendChild(button);
-})();
-</script>
-`;
-
-const authenticatedHtml = /<\/body>/i.test(indexHtml)
-  ? indexHtml.replace(/<\/body>/i, logoutScript + '</body>')
-  : indexHtml + logoutScript;
-
-// ---------------------------------------------------------------------------
-// EXPRESS APPLICATION
+// Express application
 // ---------------------------------------------------------------------------
 
 const app = express();
 
 app.disable('x-powered-by');
 
-// Render terminates HTTPS before forwarding requests to Node.
+// Render runs behind a proxy. Trust its proxy headers for IP information.
 if (isProduction) {
   app.set('trust proxy', 1);
 }
 
-// Parse JSON before routes.
 app.use(express.json({
   type: () => true,
   strict: false,
@@ -725,110 +725,105 @@ app.use(express.json({
 }));
 
 // ---------------------------------------------------------------------------
-// AUTHENTICATION ROUTES
-// These must be registered before the global authentication middleware.
+// Authentication routes
+// These routes must appear BEFORE the global authentication middleware.
 // ---------------------------------------------------------------------------
 
-// ---------------------------------------------------------------------------
-// POST /auth/login
-// ---------------------------------------------------------------------------
-
+// Login.
 app.post('/auth/login', (req, res) => {
   res.set('Cache-Control', 'no-store');
 
-  const submittedKey = isObject(req.body) &&
-    typeof req.body.apiKey === 'string'
+  const ip = req.ip || req.socket.remoteAddress || 'unknown';
+
+  if (!checkLoginRateLimit(ip)) {
+    return sendError(
+      res,
+      429,
+      'Too many failed login attempts. Try again later.'
+    );
+  }
+
+  const suppliedKey =
+    isObject(req.body) && typeof req.body.apiKey === 'string'
       ? req.body.apiKey
       : '';
 
-  if (!submittedKey || !safeEqual(submittedKey, API_KEY)) {
-    return sendError(res, 401, 'unauthorized');
+  if (!suppliedKey || !safeEqual(suppliedKey, API_KEY)) {
+    recordFailedLogin(ip);
+    return sendError(res, 401, 'Invalid API key.');
   }
 
-  const token = createSessionToken();
+  loginAttempts.delete(ip);
 
-  setSessionCookie(res, token);
+  setSessionCookie(res);
 
   return res.json({
     ok: true,
-    authenticated: true,
-    expires_in: SESSION_DURATION_SECONDS
+    message: 'Authentication successful.'
   });
 });
 
-// ---------------------------------------------------------------------------
-// GET /auth/session
-// ---------------------------------------------------------------------------
-
+// Check current browser session.
 app.get('/auth/session', (req, res) => {
   res.set('Cache-Control', 'no-store');
 
   return res.json({
-    authenticated: verifySession(req)
+    authenticated: hasValidSession(req)
   });
 });
 
-// ---------------------------------------------------------------------------
-// POST /auth/logout
-// ---------------------------------------------------------------------------
-
+// Logout.
 app.post('/auth/logout', (req, res) => {
   clearSessionCookie(res);
 
   return res.json({
     ok: true,
-    authenticated: false
+    message: 'Logged out successfully.'
   });
 });
 
 // ---------------------------------------------------------------------------
-// HOMEPAGE
-// ---------------------------------------------------------------------------
-
-// The homepage is the only application page that can be reached without
-// an existing session. It displays the login screen until authenticated.
-
-app.get('/', (req, res) => {
-  res.set('Cache-Control', 'no-store');
-
-  if (!verifySession(req)) {
-    return res.status(200).type('html').send(loginHtml);
-  }
-
-  return res.type('html').send(authenticatedHtml);
-});
-
-// ---------------------------------------------------------------------------
-// GLOBAL AUTHENTICATION MIDDLEWARE
-// ---------------------------------------------------------------------------
-
-// Every application endpoint registered below this line requires either:
-// 1. A valid signed browser session cookie, or
-// 2. The correct X-API-Key header.
-//
-// This includes health, slots, bookings and administrator endpoints.
-
-app.use(requireAuthentication);
-
-// ---------------------------------------------------------------------------
-// HEALTH CHECK - AUTHENTICATED
+// Health check - PUBLIC OPERATIONAL ENDPOINT
+// This is kept public so Render health checks can reach the service.
 // ---------------------------------------------------------------------------
 
 app.get('/health', async (req, res) => {
   try {
     await pool.query('SELECT 1');
     res.json({ ok: true });
-
   } catch (err) {
     res.status(500).json({ ok: false });
   }
 });
 
 // ---------------------------------------------------------------------------
-// POST /reset - ADMINISTRATOR AUTHENTICATION REQUIRED
+// Main application page
 // ---------------------------------------------------------------------------
 
-app.post('/reset', async (req, res) => {
+app.get('/', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+
+  if (!hasValidSession(req)) {
+    return res.type('html').send(loginHtml);
+  }
+
+  return res.type('html').send(authenticatedHtml);
+});
+
+// ---------------------------------------------------------------------------
+// GLOBAL AUTHENTICATION
+// Every application route below this point requires authentication.
+// Browser sessions use the signed HttpOnly cookie.
+// External API clients can use X-API-Key.
+// ---------------------------------------------------------------------------
+
+app.use(requireApiKey);
+
+// ---------------------------------------------------------------------------
+// POST /reset - AUTHENTICATED
+// ---------------------------------------------------------------------------
+
+app.post('/reset', requireApiKey, async (req, res) => {
   const body = req.body;
 
   if (!isObject(body) || !Array.isArray(body.slots)) {
@@ -1317,13 +1312,15 @@ app.delete('/bookings/:id', async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// FALLBACKS
+// Fallbacks
 // ---------------------------------------------------------------------------
 
+// Unknown routes are also behind the global authentication middleware.
 app.use((req, res) => {
   sendError(res, 404, 'not found');
 });
 
+// Error handler.
 app.use((err, req, res, next) => {
   if (
     err &&
@@ -1341,15 +1338,14 @@ app.use((err, req, res, next) => {
 });
 
 // ---------------------------------------------------------------------------
-// START SERVER
+// Start server
 // ---------------------------------------------------------------------------
 
 initDb()
   .then(() => {
     app.listen(PORT, () => {
-      console.log(`Clinic booking API listening on ${PORT}`);
-      console.log('API authentication is enabled.');
-      console.log('Browser sessions use signed HttpOnly cookies.');
+      console.log(`Clinic booking API listening on port ${PORT}`);
+      console.log('API-key authentication is enabled.');
     });
   })
   .catch((err) => {
