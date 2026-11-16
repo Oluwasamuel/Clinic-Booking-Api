@@ -90,9 +90,9 @@
 </main>
 
 <script>
-  // The API requires an X-API-Key header, so this page sends it with every call.
-  const API_KEY = "__API_KEY__";
-  const $ = (id) => document.getElementById(id);
+  // The operator enters the API key; it is held in memory only.
+let API_KEY = '';
+const $ = (id) => document.getElementById(id);
   let allSlots = [];
   let chosen = null;
   let current = null;
